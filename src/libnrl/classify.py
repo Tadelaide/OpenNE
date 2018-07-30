@@ -5,6 +5,7 @@ from sklearn.metrics import f1_score
 from sklearn.preprocessing import MultiLabelBinarizer
 from time import time
 
+from sklearn.preprocessing import LabelEncoder
 
 class TopKRanker(OneVsRestClassifier):
     def predict(self, X, top_k_list):
@@ -25,6 +26,8 @@ class Classifier(object):
         self.embeddings = vectors
         self.clf = TopKRanker(clf)
         self.binarizer = MultiLabelBinarizer(sparse_output=True)
+        # self.lebelEncoder = LabelEncoder()
+
 
     def train(self, X, Y, Y_all):
         self.binarizer.fit(Y_all)
@@ -53,14 +56,31 @@ class Classifier(object):
 
     def split_train_evaluate(self, X, Y, train_precent, seed=0):
         state = numpy.random.get_state()
-
-        training_size = int(train_precent * len(X))
+        # training_size = int(train_precent * len(X))
         numpy.random.seed(seed)
-        shuffle_indices = numpy.random.permutation(numpy.arange(len(X)))
-        X_train = [X[shuffle_indices[i]] for i in range(training_size)]
-        Y_train = [Y[shuffle_indices[i]] for i in range(training_size)]
-        X_test = [X[shuffle_indices[i]] for i in range(training_size, len(X))]
-        Y_test = [Y[shuffle_indices[i]] for i in range(training_size, len(X))]
+        # shuffle_indices = numpy.random.permutation(numpy.arange(len(X)))
+        # X_train = [X[shuffle_indices[i]] for i in range(training_size)]
+        # Y_train = [Y[shuffle_indices[i]] for i in range(training_size)]
+        # X_test = [X[shuffle_indices[i]] for i in range(training_size, len(X))]
+        # Y_test = [Y[shuffle_indices[i]] for i in range(training_size, len(X))]
+        # print(X)
+        K = {}
+        for i, item in enumerate(Y):
+            if item[0] not in list(K.keys()):
+                K[item[0]] = [X[i]]
+            else:
+                K[item[0]].append(X[i])
+        X_train = []
+        Y_train = []
+        X_test = []
+        Y_test = []
+        for label in K.keys():
+            train_size_label = int(train_precent * len(K[label]))
+            shuffle_indices = numpy.random.permutation(numpy.arange(len(K[label])))
+            X_test.extend([K[label][shuffle_indices[i]] for i in range(train_size_label)])
+            X_train.extend([K[label][shuffle_indices[i]] for i in range(train_size_label, len(K[label]))])
+            Y_test.extend([[label] for i in range(train_size_label)])
+            Y_train.extend([[label] for i in range(train_size_label, len(K[label]))])
 
         self.train(X_train, Y_train, Y)
         numpy.random.set_state(state)
@@ -96,3 +116,4 @@ def read_node_label(filename):
         Y.append(vec[1:])
     fin.close()
     return X, Y
+

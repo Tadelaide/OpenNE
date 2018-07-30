@@ -5,6 +5,9 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 import tensorflow as tf
 from .classify import Classifier, read_node_label
+import matplotlib.pyplot as plt
+from sklearn import manifold, datasets
+from pandas import DataFrame
 
 
 class _LINE(object):
@@ -14,6 +17,7 @@ class _LINE(object):
         self.order = order
         self.g = graph
         self.node_size = graph.G.number_of_nodes()
+
         self.rep_size = rep_size
         self.batch_size = batch_size
         self.negative_ratio = negative_ratio
@@ -30,6 +34,8 @@ class _LINE(object):
         self.h = tf.placeholder(tf.int32, [None])
         self.t = tf.placeholder(tf.int32, [None])
         self.sign = tf.placeholder(tf.float32, [None])
+        self.lr = tf.Variable(2e-3, dtype = tf.float32)
+
 
         cur_seed = random.getrandbits(32)
         self.embeddings = tf.get_variable(name="embeddings"+str(self.order), shape=[self.node_size, self.rep_size], initializer = tf.contrib.layers.xavier_initializer(uniform = False, seed=cur_seed))
@@ -37,16 +43,42 @@ class _LINE(object):
         # self.h_e = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.embeddings, self.h), 1)
         # self.t_e = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.embeddings, self.t), 1)
         # self.t_e_context = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.context_embeddings, self.t), 1)
+        #从 embedding 中将对应的行列取出
         self.h_e = tf.nn.embedding_lookup(self.embeddings, self.h)
         self.t_e = tf.nn.embedding_lookup(self.embeddings, self.t)
         self.t_e_context = tf.nn.embedding_lookup(self.context_embeddings, self.t)
+        '''
+        定义 loss 在这里定义的
+        '''
+        #Baseline
         self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
         self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+        #New
+        #softmax, 0.35
+        # self.second_loss = -tf.reduce_mean(tf.nn.softmax(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
+        #改变sign 的位置 0,40
+        # self.first_loss = -tf.reduce_mean(self.sign*tf.log_sigmoid(tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+        # self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+        # 牛逼的0.55
+        # self.first_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+        
+        # self.first_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+        # self.second_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
+
+
+        
+        
+
+
         if self.order == 1:
             self.loss = self.first_loss
         else:
             self.loss = self.second_loss
-        optimizer = tf.train.AdamOptimizer(0.001)
+        #Baseline
+        optimizer = tf.train.AdamOptimizer(1e-3)
+        #修改之后的结果
+        # optimizer = tf.train.AdamOptimizer(self.lr)
+        #加入激活函数,有提高
         self.train_op = optimizer.minimize(self.loss)
 
 
@@ -61,6 +93,8 @@ class _LINE(object):
                 self.t : t,
                 self.sign : sign,
             }
+            #修改
+            # self.sess.run(tf.assign(self.lr, 2e-3*( 0.95 ** self.cur_epoch)))
             _, cur_loss = self.sess.run([self.train_op, self.loss],feed_dict)
             sum_loss += cur_loss
             batch_id += 1
@@ -72,14 +106,14 @@ class _LINE(object):
 
         table_size = 1e8
         numNodes = self.node_size
-
+        #取出来的是edge(1,2)，一堆边的向量
         edges = [(look_up[x[0]], look_up[x[1]]) for x in self.g.G.edges()]
 
         data_size = self.g.G.number_of_edges()
         edge_set = set([x[0]*numNodes+x[1] for x in edges])
         shuffle_indices = np.random.permutation(np.arange(data_size))
 
-        # positive or negative mod
+        # positive or negative mod, negative sampleing
         mod = 0
         mod_size = 1 + self.negative_ratio
         h = []
@@ -88,6 +122,7 @@ class _LINE(object):
 
         start_index = 0
         end_index = min(start_index+self.batch_size, data_size)
+
         while start_index < data_size:
             if mod == 0:
                 sign = 1.
@@ -188,6 +223,7 @@ class _LINE(object):
             vectors[look_back[i]] = embedding
         return vectors
 
+
 class LINE(object):
 
     def __init__(self, graph, rep_size=128, batch_size=1000, epoch=10, negative_ratio=5, order=3, label_file = None, clf_ratio = 0.5, auto_save = True):
@@ -195,8 +231,11 @@ class LINE(object):
         self.order = order
         self.best_result = 0
         self.vectors = {}
+        self.resultRank = []
+        self.best_label = None
         if order == 3:
             self.model1 = _LINE(graph, rep_size/2, batch_size, negative_ratio, order=1)
+            #graph 是输入的图，rep_size 是 represent 的大小，batch 是批次大小
             self.model2 = _LINE(graph, rep_size/2, batch_size, negative_ratio, order=2)
             for i in range(epoch):
                 self.model1.train_one_epoch()
@@ -207,9 +246,11 @@ class LINE(object):
                     print("Training classifier using {:.2f}% nodes...".format(clf_ratio*100))
                     clf = Classifier(vectors=self.vectors, clf=LogisticRegression())
                     result = clf.split_train_evaluate(X, Y, clf_ratio)
-
+                    self.resultRank.append(result['macro'])
                     if result['macro'] > self.best_result:
                         self.best_result = result['macro']
+                        #label Tade add
+                        self.best_label = Y
                         if auto_save:
                             self.best_vector = self.vectors
 
@@ -223,15 +264,39 @@ class LINE(object):
                     print("Training classifier using {:.2f}% nodes...".format(clf_ratio*100))
                     clf = Classifier(vectors=self.vectors, clf=LogisticRegression())
                     result = clf.split_train_evaluate(X, Y, clf_ratio)
-
+                    self.resultRank.append(result['macro'])
                     if result['macro'] > self.best_result:
                         self.best_result = result['macro']
+                        #label Tade add
+                        self.best_label = Y
                         if auto_save:
                             self.best_vector = self.vectors
 
         self.get_embeddings()
         if auto_save and label_file:
             self.vectors = self.best_vector
+
+        plt.plot(self.resultRank,'bx')
+        plt.plot(self.resultRank,'-r')
+        plt.grid(True)
+        plt.title('Wiki')
+        plt.savefig('test.png')
+        plt.show()
+
+        # plt.scatter(self.best_vector,self.best_label,c=self.best_label,s=20,marker='o')
+        # plt.show()
+
+        # fig = plt.figure(figsize=(8, 8))
+        # n_components = 2
+        # tsne = manifold.TSNE(n_components=n_components, init='pca', random_state=0)
+        # Y = tsne.fit_transform(DataFrame(self.best_vector).T)
+        # color = (np.array(self.best_label).T)[0]
+        # color_int = np.array([int(item) for item in color])
+        # colorMax, colorMin = color_int.max(), color_int.min()
+        # color = (color_int - colorMin) / (colorMax - colorMin)
+        # plt.scatter(Y[:, 0], Y[:, 1], c=color, cmap=plt.cm.Spectral)
+        # plt.show()
+
 
     def get_embeddings(self):
         self.last_vectors = self.vectors
@@ -252,3 +317,11 @@ class LINE(object):
             fout.write("{} {}\n".format(node,
                                         ' '.join([str(x) for x in vec])))
         fout.close()
+
+        ffout = open('result.txt','w')
+        ffout.write("{} {}\n".format(node_num, self.rep_size))
+        for item in self.best_label:
+            ffout.write("{}\n".format(item[0]))
+        ffout.close()
+
+

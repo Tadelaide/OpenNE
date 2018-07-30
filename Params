@@ -1,0 +1,3 @@
+python src/main.py --method line --label-file data/wiki/Wiki_category.txt --input data/wiki/Wiki_edgelist.txt--graph-format adjlist --output vec_all.txt --order 3
+
+python src/main.py --method line --label-file data/blogCatalog/bc_labels.txt --input data/blogCatalog/bc_edgelist.txt --graph-format adjlist --output vec_all.txt --order 3

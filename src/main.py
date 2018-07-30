@@ -31,7 +31,7 @@ def parse_args():
                         help='Number of latent dimensions to learn for each node.')
     parser.add_argument('--window-size', default=10, type=int,
                         help='Window size of skipgram model.')
-    parser.add_argument('--epochs', default=5, type=int,
+    parser.add_argument('--epochs', default=10, type=int,
                         help='The training epochs of LINE and GCN')
     parser.add_argument('--p', default=1.0, type=float)
     parser.add_argument('--q', default=1.0, type=float)
@@ -106,7 +106,7 @@ def main(args):
     elif args.method == 'grarep':
         model = GraRep(graph=g, Kstep=args.kstep, dim=args.representation_size)
     t2 = time.time()
-    print(t2-t1)
+    print("The total time of process is ",t2-t1)
     if args.method != 'gcn':
         print("Saving embeddings...")
         model.save_embeddings(args.output)

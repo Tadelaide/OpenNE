@@ -17,6 +17,7 @@ class Graph(object):
         self.look_back_list = []
         self.node_size = 0
 
+    #make the node into a dic and list
     def encode_node(self):
         look_up = self.look_up_dict
         look_back = self.look_back_list
