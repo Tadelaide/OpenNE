@@ -8,6 +8,7 @@ from .classify import Classifier, read_node_label
 import matplotlib.pyplot as plt
 from sklearn import manifold, datasets
 from pandas import DataFrame
+from sklearn.metrics import pairwise_kernels
 
 
 class _LINE(object):
@@ -36,23 +37,30 @@ class _LINE(object):
         self.sign = tf.placeholder(tf.float32, [None])
         self.lr = tf.Variable(2e-3, dtype = tf.float32)
 
-
+        #self.embeddings 为[self.node_size 总共的 node 数量, self.rep_size 所嵌入的大小] 随机生成的embeddings，即 1000*128
         cur_seed = random.getrandbits(32)
+
         self.embeddings = tf.get_variable(name="embeddings"+str(self.order), shape=[self.node_size, self.rep_size], initializer = tf.contrib.layers.xavier_initializer(uniform = False, seed=cur_seed))
+
         self.context_embeddings = tf.get_variable(name="context_embeddings"+str(self.order), shape=[self.node_size, self.rep_size], initializer = tf.contrib.layers.xavier_initializer(uniform = False, seed=cur_seed))
+        
+        #一个批次1000
+        self.embeddingNodeSize = tf.constant(self.node_size, tf.float32)
         # self.h_e = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.embeddings, self.h), 1)
         # self.t_e = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.embeddings, self.t), 1)
         # self.t_e_context = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.context_embeddings, self.t), 1)
         #从 embedding 中将对应的行列取出
         self.h_e = tf.nn.embedding_lookup(self.embeddings, self.h)
+        #self.h_e 这个 tensor 是所有edge(x,y), x 所组成的 tensor 从embeddings 里取出的随机 128维度的tensor, 他的 shape 神奇的是2*128的一个tensor
         self.t_e = tf.nn.embedding_lookup(self.embeddings, self.t)
         self.t_e_context = tf.nn.embedding_lookup(self.context_embeddings, self.t)
+        
         '''
         定义 loss 在这里定义的
         '''
         #Baseline
-        self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
-        self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+        # self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.matmul(tf.transpose(self.h_e), self.t_e_context), axis=1)))
+        # self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
         #New
         #softmax, 0.35
         # self.second_loss = -tf.reduce_mean(tf.nn.softmax(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
@@ -62,8 +70,33 @@ class _LINE(object):
         # 牛逼的0.55
         # self.first_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
         
-        # self.first_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
-        # self.second_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
+        # self.first_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_mean(tf.multiply(self.h_e, self.t_e), axis=1)))
+        # self.second_loss = -tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels = -self.sign, logits = tf.reduce_mean(tf.multiply(self.h_e, self.t_e_context), axis=1)))
+
+        # (tf.nn.sigmoid_cross_entropy_with_logits(labels = self.h_e, logits = self.t_e_context)
+        # tf.nn.sigmoid_cross_entropy_with_logits(labels = self.h_e, logits = self.t_e)
+
+        #New 
+        # kernal_first = tf.multiply(self.h_e, self.t_e)
+        # kernal_second = tf.multiply(self.h_e, self.t_e_context)
+        kernal_first = self.compute_rbf(self.h_e, self.t_e)
+        kernal_second = self.compute_rbf(self.h_e, self.t_e_context)
+        # kernal_h = tf.tanh(self.h_e)
+        # kernal_t = tf.tanh(self.t_e)
+        # kernal_r = pairwise_kernels(self.h_e, self.t_e, metric= 'rbf')
+
+
+        self.first_loss = -tf.reduce_mean(tf.log_sigmoid(tf.reduce_sum(kernal_first, axis=1)))
+        self.second_loss = tf.reduce_mean(tf.reduce_sum(kernal_second, axis=1))
+        #2*128维度，通过tf.reduce_sum 变成了1*128维度
+
+
+
+        #Newnew
+        
+        #继续
+        # self.first_loss = self.compute_mmd(self.h_e, self.t_e)
+        # self.second_loss = self.compute_mmd(self.h_e, self.t_e_context)
 
 
         
@@ -96,6 +129,25 @@ class _LINE(object):
             #修改
             # self.sess.run(tf.assign(self.lr, 2e-3*( 0.95 ** self.cur_epoch)))
             _, cur_loss = self.sess.run([self.train_op, self.loss],feed_dict)
+
+
+            # print(self.sess.run(self.h_e[0],feed_dict),'nmnmmnmnmnmnmnmn')
+            # print(self.sess.run(self.h_e[1],feed_dict))
+
+            # print(self.sess.run(tf.shape(self.t_e),feed_dict),'ttttttttttttttttttttttttttttt')
+            # print((self.sess.run(self.t_e,feed_dict)),'ttttttttttttttttttttttttttttt')
+
+            # print(self.sess.run(tf.shape(tf.nn.embedding_lookup(self.embeddings, self.t)),feed_dict),'qweqweqweqweqweq')
+            # print(self.sess.run(tf.nn.embedding_lookup(self.embeddings, self.t),feed_dict),'qweqweqweqweqweq')
+
+            # print(self.sess.run(tf.shape(self.embeddings),feed_dict),'zxczxczxczxczxczxc')
+            # print(self.sess.run((self.embeddingNodeSize),feed_dict),'zxczxczxczxczxczxczxczxc')
+            # print(self.sess.run((self.embeddings),feed_dict),'zxczxczxczxczxczxczxczxc')
+
+
+            # print(self.sess.run(tf.shape(tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),feed_dict),'.......................')
+
+
             sum_loss += cur_loss
             batch_id += 1
         print('epoch:{} sum of loss:{!s}'.format(self.cur_epoch, sum_loss))
@@ -223,6 +275,24 @@ class _LINE(object):
             vectors[look_back[i]] = embedding
         return vectors
 
+    def compute_kernel(self,x, y):
+        x_size = tf.shape(x)[0]
+        y_size = tf.shape(y)[0]
+        dim = tf.shape(x)[1]
+        tiled_x = tf.tile(tf.reshape(x, tf.stack([x_size, 1, dim])), tf.stack([1, y_size, 1]))
+        tiled_y = tf.tile(tf.reshape(y, tf.stack([1, y_size, dim])), tf.stack([x_size, 1, 1]))
+        return tf.exp(-tf.reduce_mean(tf.square(tiled_x - tiled_y), axis=2) / tf.cast(dim, tf.float32))
+
+    def compute_mmd(self,x, y):
+        x_kernel = self.compute_kernel(x, x)
+        y_kernel = self.compute_kernel(y, y)
+        xy_kernel = self.compute_kernel(x, y)
+        return tf.reduce_mean(x_kernel) + tf.reduce_mean(y_kernel) - 2 * tf.reduce_mean(xy_kernel)
+
+    def compute_rbf(self,x,y):
+        gamma = tf.constant(-1.0/128)
+        sq_vec = tf.multiply(2., tf.matmul(x, tf.transpose(y)))
+        return tf.exp(tf.multiply(gamma, tf.abs(sq_vec)))
 
 class LINE(object):
 
