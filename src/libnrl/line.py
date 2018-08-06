@@ -37,7 +37,7 @@ class _LINE(object):
         self.sign = tf.placeholder(tf.float32, [None])
         self.lr = tf.Variable(2e-3, dtype = tf.float32)
 
-        #self.embeddings 为[self.node_size 总共的 node 数量, self.rep_size 所嵌入的大小] 随机生成的embeddings，即 1000*128
+        #self.embeddings 为[self.node_size 总共的 node 数量, self.rep_size 所嵌入的大小] 随机生成的embeddings，即 2407*128
         cur_seed = random.getrandbits(32)
 
         self.embeddings = tf.get_variable(name="embeddings"+str(self.order), shape=[self.node_size, self.rep_size], initializer = tf.contrib.layers.xavier_initializer(uniform = False, seed=cur_seed))
@@ -46,6 +46,7 @@ class _LINE(object):
         
         #一个批次1000
         self.embeddingNodeSize = tf.constant(self.node_size, tf.float32)
+
         # self.h_e = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.embeddings, self.h), 1)
         # self.t_e = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.embeddings, self.t), 1)
         # self.t_e_context = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.context_embeddings, self.t), 1)
@@ -59,8 +60,12 @@ class _LINE(object):
         定义 loss 在这里定义的
         '''
         #Baseline
-        # self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.matmul(tf.transpose(self.h_e), self.t_e_context), axis=1)))
+        # self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
         # self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+
+        #Baseline2
+        # self.second_loss = tf.reduce_mean(1 - tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
+        # self.first_loss = tf.reduce_mean(1 - tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
         #New
         #softmax, 0.35
         # self.second_loss = -tf.reduce_mean(tf.nn.softmax(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
@@ -76,18 +81,41 @@ class _LINE(object):
         # (tf.nn.sigmoid_cross_entropy_with_logits(labels = self.h_e, logits = self.t_e_context)
         # tf.nn.sigmoid_cross_entropy_with_logits(labels = self.h_e, logits = self.t_e)
 
-        #New 
-        # kernal_first = tf.multiply(self.h_e, self.t_e)
-        # kernal_second = tf.multiply(self.h_e, self.t_e_context)
-        kernal_first = self.compute_rbf(self.h_e, self.t_e)
-        kernal_second = self.compute_rbf(self.h_e, self.t_e_context)
-        # kernal_h = tf.tanh(self.h_e)
-        # kernal_t = tf.tanh(self.t_e)
-        # kernal_r = pairwise_kernels(self.h_e, self.t_e, metric= 'rbf')
+        #Origin kernel
+        # self.kernal_first = tf.multiply(self.h_e, self.t_e)
+        # self.kernal_second = tf.multiply(self.h_e, self.t_e_context)
+
+        #kernel
+        self.kernal_first = self.compute_cosine(self.h_e, self.t_e)
+        self.kernal_second = self.compute_cosine(self.h_e, self.t_e_context)
+        
+        self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(self.kernal_second, axis=1)))
+        self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(self.kernal_first, axis=1)))
 
 
-        self.first_loss = -tf.reduce_mean(tf.log_sigmoid(tf.reduce_sum(kernal_first, axis=1)))
-        self.second_loss = tf.reduce_mean(tf.reduce_sum(kernal_second, axis=1))
+
+        #loss function
+        #pairwise rbf distance
+        '''
+        # self.probability_f = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
+        # self.probability_s = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
+
+        # self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
+        # self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
+
+        # self.first_loss = tf.reduce_mean(self.compute_rbf(self.normTensor_f ,self.probability_f))
+
+        # self.second_loss = tf.reduce_mean(self.compute_rbf(self.normTensor_s ,self.probability_s))
+        '''
+        # self.probability_f = tf.reshape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
+        # self.probability_s = tf.reshape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
+
+        # self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
+        # self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
+
+        # self.first_loss = tf.reduce_mean(self.compute_cosine_loss(self.normTensor_f ,self.probability_f))
+
+        # self.second_loss = tf.reduce_mean(self.compute_cosine_loss(self.normTensor_s ,self.probability_s))
         #2*128维度，通过tf.reduce_sum 变成了1*128维度
 
 
@@ -131,18 +159,17 @@ class _LINE(object):
             _, cur_loss = self.sess.run([self.train_op, self.loss],feed_dict)
 
 
-            # print(self.sess.run(self.h_e[0],feed_dict),'nmnmmnmnmnmnmnmn')
-            # print(self.sess.run(self.h_e[1],feed_dict))
+            # print(self.sess.run(self.compute_rbf(self.normTensor_f ,self.probability_f),feed_dict),'nmnmmnmnmnmnmnmn')
+            # print(self.sess.run(tf.shape(self.compute_rbf(self.normTensor_f ,self.probability_f)),feed_dict),'nmnmmnmnmnmnmnmn')
 
-            # print(self.sess.run(tf.shape(self.t_e),feed_dict),'ttttttttttttttttttttttttttttt')
-            # print((self.sess.run(self.t_e,feed_dict)),'ttttttttttttttttttttttttttttt')
+            # print(self.sess.run(tf.shape(self.t)[0],feed_dict),'ttttttttttttttttttttttttttttt')
+            # print((self.sess.run(self.t,feed_dict)),'ttttttttttttttttttttttttttttt')
 
             # print(self.sess.run(tf.shape(tf.nn.embedding_lookup(self.embeddings, self.t)),feed_dict),'qweqweqweqweqweq')
             # print(self.sess.run(tf.nn.embedding_lookup(self.embeddings, self.t),feed_dict),'qweqweqweqweqweq')
 
-            # print(self.sess.run(tf.shape(self.embeddings),feed_dict),'zxczxczxczxczxczxc')
-            # print(self.sess.run((self.embeddingNodeSize),feed_dict),'zxczxczxczxczxczxczxczxc')
-            # print(self.sess.run((self.embeddings),feed_dict),'zxczxczxczxczxczxczxczxc')
+            # print(self.sess.run(tf.shape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1))),feed_dict),'zxczxczxczxczxczxc')
+            # print(self.sess.run((tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1))),feed_dict),'zxczxczxczxczxczxczxczxc')
 
 
             # print(self.sess.run(tf.shape(tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),feed_dict),'.......................')
@@ -290,9 +317,19 @@ class _LINE(object):
         return tf.reduce_mean(x_kernel) + tf.reduce_mean(y_kernel) - 2 * tf.reduce_mean(xy_kernel)
 
     def compute_rbf(self,x,y):
-        gamma = tf.constant(-1.0/128)
-        sq_vec = tf.multiply(2., tf.matmul(x, tf.transpose(y)))
+        gamma = tf.constant(-1.0)
+        sq_vec = tf.multiply(2., tf.matmul(tf.transpose(x), (y)))
         return tf.exp(tf.multiply(gamma, tf.abs(sq_vec)))
+    
+
+        
+    def compute_cosine(self, x, y):
+        normalize_a = tf.nn.l2_normalize(x,1)        
+        normalize_b = tf.nn.l2_normalize(y,1)
+        return tf.multiply(normalize_a,normalize_b)
+        
+    def compute_cosine_loss(self, x, y):
+        return tf.losses.cosine_distance(tf.nn.l2_normalize(x,0), tf.nn.l2_normalize(y,0))
 
 class LINE(object):
 
@@ -324,6 +361,7 @@ class LINE(object):
                         if auto_save:
                             self.best_vector = self.vectors
 
+
         else:
             self.model = _LINE(graph, rep_size, batch_size, negative_ratio, order=self.order)
             for i in range(epoch):
@@ -346,12 +384,12 @@ class LINE(object):
         if auto_save and label_file:
             self.vectors = self.best_vector
 
-        plt.plot(self.resultRank,'bx')
-        plt.plot(self.resultRank,'-r')
-        plt.grid(True)
-        plt.title('Wiki')
-        plt.savefig('test.png')
-        plt.show()
+        # plt.plot(self.resultRank,'bx')
+        # plt.plot(self.resultRank,'-r')
+        # plt.grid(True)
+        # plt.title('Wiki')
+        # plt.savefig('test.png')
+        # plt.show()
 
         # plt.scatter(self.best_vector,self.best_label,c=self.best_label,s=20,marker='o')
         # plt.show()

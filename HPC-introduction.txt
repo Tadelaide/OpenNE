@@ -2,11 +2,14 @@
 
 [acq17lw@sharc-login1 ~]$ qshrx -P tale
 -bash: qshrx: 未找到命令
+最重要的四步 一定需要一步一步来
 [acq17lw@sharc-login1 ~]$ qrshx -P tale
 [acq17lw@sharc-node156 ~]$ module load apps/python/anaconda3-4.2.0
 Conda uses environments to load different sets of Python packages
 type conda env list to see the environments availible.
 [acq17lw@sharc-node156 ~]$ source activate myexperiment
+
+
 (myexperiment) [acq17lw@sharc-node156 ~]$ pwd
 /home/acq17lw
 (myexperiment) [acq17lw@sharc-node156 ~]$ ls 
