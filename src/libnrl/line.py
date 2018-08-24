@@ -52,7 +52,8 @@ class _LINE(object):
         # self.t_e_context = tf.nn.l2_normalize(tf.nn.embedding_lookup(self.context_embeddings, self.t), 1)
         #从 embedding 中将对应的行列取出
         self.h_e = tf.nn.embedding_lookup(self.embeddings, self.h)
-        #self.h_e 这个 tensor 是所有edge(x,y), x 所组成的 tensor 从embeddings 里取出的随机 128维度的tensor, 他的 shape 神奇的是2*128的一个tensor
+        #self.h_e 这个 tensor 是所有edge(x,y), x 所组成的 tensor 从embeddings 里取出的随机 128维度的tensor, 他的 shape 的是1000*128的一个tensor
+        #大小取决于batch 中的node 数字
         self.t_e = tf.nn.embedding_lookup(self.embeddings, self.t)
         self.t_e_context = tf.nn.embedding_lookup(self.context_embeddings, self.t)
         
@@ -66,6 +67,12 @@ class _LINE(object):
         #Baseline2
         # self.second_loss = tf.reduce_mean(1 - tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
         # self.first_loss = tf.reduce_mean(1 - tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)))
+
+        # probability_2 = tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1))
+        # self.second_loss = tf.reduce_mean(probability_2*(1-probability_2))
+        # probability_1 = tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1))
+        # self.first_loss = tf.reduce_mean(probability_1*(1-probability_1))
+
         #New
         #softmax, 0.35
         # self.second_loss = -tf.reduce_mean(tf.nn.softmax(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)))
@@ -85,40 +92,67 @@ class _LINE(object):
         # self.kernal_first = tf.multiply(self.h_e, self.t_e)
         # self.kernal_second = tf.multiply(self.h_e, self.t_e_context)
 
-        #kernel
-        self.kernal_first = self.compute_cosine(self.h_e, self.t_e)
-        self.kernal_second = self.compute_cosine(self.h_e, self.t_e_context)
+        # kernel
+        # self.kernal_first = tf.multiply(self.h_e, self.t_e)
+        # self.kernal_second = tf.multiply(self.h_e, self.t_e_context)
         
-        self.second_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(self.kernal_second, axis=1)))
-        self.first_loss = -tf.reduce_mean(tf.log_sigmoid(self.sign*tf.reduce_sum(self.kernal_first, axis=1)))
+        # self.second_loss = -tf.reduce_sum(-tf.nn.softplus(-self.sign*tf.reduce_sum(self.kernal_second, axis=1)))
+        # self.first_loss = -tf.reduce_sum(-tf.nn.softplus(-self.sign*tf.reduce_sum(self.kernal_first, axis=1)))
+
+        # self.second_loss = -tf.reduce_sum(tf.log_sigmoid(self.sign*tf.reduce_sum(self.kernal_second, axis=1)))
+        # self.first_loss = -tf.reduce_sum(tf.log_sigmoid(self.sign*tf.reduce_sum(self.kernal_first, axis=1)))
 
 
 
         #loss function
         #pairwise rbf distance
-        '''
+        
         # self.probability_f = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
         # self.probability_s = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
 
         # self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
         # self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
 
-        # self.first_loss = tf.reduce_mean(self.compute_rbf(self.normTensor_f ,self.probability_f))
+        # self.first_loss = tf.reduce_mean(self.compute_rbf_loss(self.normTensor_f ,self.probability_f))
 
-        # self.second_loss = tf.reduce_mean(self.compute_rbf(self.normTensor_s ,self.probability_s))
+        # self.second_loss = tf.reduce_mean(self.compute_rbf_loss(self.normTensor_s ,self.probability_s))
+        
+        
+        #cosine-loss
+        self.probability_f = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
+        self.probability_s = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
+
+        self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
+        self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
+
+        self.first_loss = tf.reduce_mean(self.compute_cosine_loss(self.normTensor_f,self.probability_f))
+
+        self.second_loss = tf.reduce_mean(self.compute_cosine_loss(self.normTensor_s, self.probability_s))
+        
         '''
-        # self.probability_f = tf.reshape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
-        # self.probability_s = tf.reshape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
+        #poly-loss
+        self.probability_f = tf.reshape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
+        self.probability_s = tf.reshape(tf.log_sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
 
-        # self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
-        # self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
+        self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
+        self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
 
-        # self.first_loss = tf.reduce_mean(self.compute_cosine_loss(self.normTensor_f ,self.probability_f))
+        self.first_loss = tf.reduce_mean(self.compute_poly_loss(self.normTensor_f ,self.probability_f))
 
-        # self.second_loss = tf.reduce_mean(self.compute_cosine_loss(self.normTensor_s ,self.probability_s))
-        #2*128维度，通过tf.reduce_sum 变成了1*128维度
+        self.second_loss = tf.reduce_mean(self.compute_poly_loss(self.normTensor_s ,self.probability_s))
+        '''
+        '''
+        #MMD-loss
+        self.probability_f = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e), axis=1)),[-1, tf.shape(self.h)[0]])
+        self.probability_s = tf.reshape(tf.sigmoid(self.sign*tf.reduce_sum(tf.multiply(self.h_e, self.t_e_context), axis=1)),[-1, tf.shape(self.h)[0]])
 
+        self.normTensor_f = tf.zeros_like(self.probability_f)+1.0
+        self.normTensor_s = tf.zeros_like(self.probability_s)+1.0
 
+        self.first_loss = self.compute_mmd(self.normTensor_f ,self.probability_f)
+
+        self.second_loss = self.compute_mmd(self.normTensor_s ,self.probability_s)
+        '''
 
         #Newnew
         
@@ -159,11 +193,12 @@ class _LINE(object):
             _, cur_loss = self.sess.run([self.train_op, self.loss],feed_dict)
 
 
-            # print(self.sess.run(self.compute_rbf(self.normTensor_f ,self.probability_f),feed_dict),'nmnmmnmnmnmnmnmn')
-            # print(self.sess.run(tf.shape(self.compute_rbf(self.normTensor_f ,self.probability_f)),feed_dict),'nmnmmnmnmnmnmnmn')
+            # print(self.sess.run(self.compute_rbf_loss(self.normTensor_f ,self.probability_f),feed_dict),'nmnmmnmnmnmnmnmn')
+            # print(self.sess.run(tf.shape(self.compute_rbf_loss(self.normTensor_f ,self.probability_f)),feed_dict),'nmnmmnmnmnmnmnmn')
 
-            # print(self.sess.run(tf.shape(self.t)[0],feed_dict),'ttttttttttttttttttttttttttttt')
-            # print((self.sess.run(self.t,feed_dict)),'ttttttttttttttttttttttttttttt')
+            # print(self.sess.run(tf.shape(self.t_e),feed_dict),'ssssssssssssssssssssssssssss')
+            # print((self.sess.run(self.t_e,feed_dict)),'ttttttttttttttttttttttttttttt')
+            # print((self.sess.run(self.h_e,feed_dict)),'hhhhhhhhhhhhhhhhhhhhhhhhhhhhh')
 
             # print(self.sess.run(tf.shape(tf.nn.embedding_lookup(self.embeddings, self.t)),feed_dict),'qweqweqweqweqweq')
             # print(self.sess.run(tf.nn.embedding_lookup(self.embeddings, self.t),feed_dict),'qweqweqweqweqweq')
@@ -316,12 +351,11 @@ class _LINE(object):
         xy_kernel = self.compute_kernel(x, y)
         return tf.reduce_mean(x_kernel) + tf.reduce_mean(y_kernel) - 2 * tf.reduce_mean(xy_kernel)
 
-    def compute_rbf(self,x,y):
+    def compute_rbf_loss(self,x,y):
         gamma = tf.constant(-1.0)
         sq_vec = tf.multiply(2., tf.matmul(tf.transpose(x), (y)))
         return tf.exp(tf.multiply(gamma, tf.abs(sq_vec)))
     
-
         
     def compute_cosine(self, x, y):
         normalize_a = tf.nn.l2_normalize(x,1)        
@@ -329,7 +363,14 @@ class _LINE(object):
         return tf.multiply(normalize_a,normalize_b)
         
     def compute_cosine_loss(self, x, y):
-        return tf.losses.cosine_distance(tf.nn.l2_normalize(x,0), tf.nn.l2_normalize(y,0))
+        # return tf.losses.cosine_distance(tf.nn.l2_normalize(x,0), tf.nn.l2_normalize(y,0), dim = 1)
+        return tf.losses.cosine_distance(x, y, dim = 1)
+
+    def compute_poly_loss(self,x,y):
+        gamma = -tf.constant(1.0/128)
+        coef0 = 1
+        degree = 3
+        return tf.pow(tf.multiply(gamma, tf.matmul((x), tf.transpose(y))) + coef0, degree)
 
 class LINE(object):
 
